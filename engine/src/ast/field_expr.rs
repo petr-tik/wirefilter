@@ -308,12 +308,14 @@ mod tests {
     use ast::function_expr::{FunctionCallArgExpr, FunctionCallExpr};
     use cidr::{Cidr, IpCidr};
     use execution_context::ExecutionContext;
-    use functions::{Function, FunctionArgKind, FunctionImpl, FunctionOptParam, FunctionParam};
+    use functions::{
+        Function, FunctionArgKind, FunctionArgs, FunctionImpl, FunctionOptParam, FunctionParam,
+    };
     use lazy_static::lazy_static;
     use rhs_types::IpRange;
     use std::net::IpAddr;
 
-    fn echo_function<'a>(args: &mut dyn Iterator<Item = LhsValue<'a>>) -> LhsValue<'a> {
+    fn echo_function<'a>(args: FunctionArgs<'_, 'a>) -> LhsValue<'a> {
         let input = args.next().unwrap();
         match input {
             LhsValue::Bytes(bytes) => LhsValue::Bytes(bytes.to_vec().into()),
@@ -321,7 +323,7 @@ mod tests {
         }
     }
 
-    fn lowercase_function<'a>(args: &mut dyn Iterator<Item = LhsValue<'a>>) -> LhsValue<'a> {
+    fn lowercase_function<'a>(args: FunctionArgs<'_, 'a>) -> LhsValue<'a> {
         let input = args.next().unwrap();
         match input {
             LhsValue::Bytes(bytes) => LhsValue::Bytes(bytes.to_ascii_lowercase().into()),
@@ -329,7 +331,7 @@ mod tests {
         }
     }
 
-    fn concat_function<'a>(args: &mut dyn Iterator<Item = LhsValue<'a>>) -> LhsValue<'a> {
+    fn concat_function<'a>(args: FunctionArgs<'_, 'a>) -> LhsValue<'a> {
         match (args.next().unwrap(), args.next().unwrap()) {
             (LhsValue::Bytes(buf1), LhsValue::Bytes(buf2)) => {
                 let mut vec1 = buf1.to_vec();
