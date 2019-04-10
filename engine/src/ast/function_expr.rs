@@ -1,5 +1,6 @@
 use super::field_expr::LhsFieldExpr;
 use execution_context::ExecutionContext;
+use filter::CompiledValueExpr;
 use functions::{Function, FunctionArgKind, FunctionParam};
 use lex::{expect, skip_space, take, take_while, LexError, LexErrorKind, LexResult, LexWith};
 use scheme::{Field, Scheme};
@@ -28,6 +29,16 @@ impl<'s> FunctionCallArgExpr<'s> {
                 LhsFieldExpr::FunctionCallExpr(call) => call.execute(ctx),
             },
             FunctionCallArgExpr::Literal(literal) => literal.into(),
+        }
+    }
+
+    pub fn compile(self) -> CompiledValueExpr<'s> {
+        match self {
+            FunctionCallArgExpr::LhsFieldExpr(lhs) => lhs.compile(),
+            FunctionCallArgExpr::Literal(literal) => {
+                let value = (&literal).into();
+                CompiledValueExpr::new(move |ctx| value)
+            }
         }
     }
 }
@@ -85,6 +96,15 @@ impl<'s> FunctionCallExpr<'s> {
 
     pub fn uses(&self, field: Field<'s>) -> bool {
         self.args.iter().any(|arg| arg.uses(field))
+    }
+
+    pub fn compile(self) -> CompiledValueExpr<'s> {
+        let args = self.args.iter().map(|arg| arg.compile());
+        CompiledValueExpr::new(move |ctx| {
+            self.function
+                .implementation
+                .execute(args.map(|arg| arg.execute(ctx)))
+        })
     }
 
     pub fn execute(&self, ctx: &'s ExecutionContext<'s>) -> LhsValue<'_> {

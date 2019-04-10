@@ -1,4 +1,5 @@
 use super::{function_expr::FunctionCallExpr, CompiledExpr, Expr};
+use filter::CompiledValueExpr;
 use fnv::FnvBuildHasher;
 use heap_searcher::HeapSearcher;
 use indexmap::IndexSet;
@@ -145,6 +146,15 @@ impl<'s> LhsFieldExpr<'s> {
             }
             LhsFieldExpr::Field(f) => {
                 CompiledExpr::new(move |ctx| func(ctx.get_field_value_unchecked(f)))
+            }
+        }
+    }
+
+    pub fn compile(self) -> CompiledValueExpr<'s> {
+        match self {
+            LhsFieldExpr::FunctionCallExpr(call) => call.compile(),
+            LhsFieldExpr::Field(f) => {
+                CompiledValueExpr::new(move |ctx| ctx.get_field_value_unchecked(f))
             }
         }
     }

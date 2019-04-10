@@ -1,6 +1,7 @@
 use execution_context::ExecutionContext;
 use failure::Fail;
 use scheme::Scheme;
+use types::LhsValue;
 
 /// An error that occurs if filter and provided [`ExecutionContext`] have
 /// different [schemes](struct@Scheme).
@@ -24,6 +25,20 @@ impl<'s> CompiledExpr<'s> {
 
     /// Executes a filter against a provided context with values.
     pub fn execute(&self, ctx: &ExecutionContext<'s>) -> bool {
+        self.0(ctx)
+    }
+}
+
+pub(crate) struct CompiledValueExpr<'s>(Box<dyn 's + Fn(&'s ExecutionContext<'s>) -> LhsValue<'s>>);
+
+impl<'s> CompiledValueExpr<'s> {
+    /// Creates a compiled expression IR from a generic closure.
+    pub(crate) fn new(closure: impl 's + Fn(&'s ExecutionContext<'s>) -> LhsValue<'s>) -> Self {
+        CompiledValueExpr(Box::new(closure))
+    }
+
+    /// Executes a filter against a provided context with values.
+    pub fn execute(&'s self, ctx: &'s ExecutionContext<'s>) -> LhsValue<'s> {
         self.0(ctx)
     }
 }
