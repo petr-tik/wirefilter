@@ -1,6 +1,6 @@
 use crate::{
     lex::{expect, skip_space, Lex, LexResult, LexWith},
-    rhs_types::{Bytes, IpRange, UninhabitedBool},
+    rhs_types::{Bytes, IpRange, UninhabitedBool, UninhabitedMap},
     strict_partial_ord::StrictPartialOrd,
 };
 use failure::Fail;
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
     cmp::Ordering,
+    collections::HashMap,
     convert::TryFrom,
     fmt::{self, Debug, Formatter},
     net::IpAddr,
@@ -43,6 +44,32 @@ pub struct TypeMismatchError {
     pub actual: Type,
 }
 
+macro_rules! replace_underscore {
+    ($name:ident ($val_ty:ty)) => {Type::$name(_)};
+    ($name:ident) => {Type::$name};
+}
+
+macro_rules! specialized_get_type {
+    (Map, $value:ident) => {
+        Type::Map(Box::new($value.get_type()))
+    };
+    ($name:ident, $value:ident) => {
+        Type::$name
+    };
+}
+
+macro_rules! specialized_type_mismatch {
+    (Map, $value:ident) => {
+        unreachable!()
+    };
+    ($name:ident, $value:ident) => {
+        Err(TypeMismatchError {
+            expected: Type::$name,
+            actual: $value.get_type(),
+        })
+    };
+}
+
 macro_rules! declare_types {
     ($(# $attrs:tt)* enum $name:ident $(<$lt:tt>)* { $($(# $vattrs:tt)* $variant:ident ( $ty:ty ) , )* }) => {
         $(# $attrs)*
@@ -54,7 +81,7 @@ macro_rules! declare_types {
         impl $(<$lt>)* GetType for $name $(<$lt>)* {
             fn get_type(&self) -> Type {
                 match self {
-                    $($name::$variant(_) => Type::$variant,)*
+                    $($name::$variant(_value) => specialized_get_type!($variant, _value),)*
                 }
             }
         }
@@ -68,12 +95,12 @@ macro_rules! declare_types {
         }
     };
 
-    ($($(# $attrs:tt)* $name:ident ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty ) , )*) => {
+    ($($(# $attrs:tt)* $name:ident $([$val_ty:ty])? ( $(# $lhs_attrs:tt)* $lhs_ty:ty | $rhs_ty:ty | $multi_rhs_ty:ty ) , )*) => {
         /// Enumeration of supported types for field values.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
         #[repr(C)]
         pub enum Type {
-            $($(# $attrs)* $name,)*
+            $($(# $attrs)* $name$(($val_ty))?,)*
         }
 
         /// Provides a way to get a [`Type`] of the implementor.
@@ -84,7 +111,7 @@ macro_rules! declare_types {
 
         impl GetType for Type {
             fn get_type(&self) -> Type {
-                *self
+                self.clone()
             }
         }
 
@@ -106,17 +133,14 @@ macro_rules! declare_types {
                 LhsValue::$name(value)
             }
         })*
-
+        //Map<>::try_from(ip_lhs_value)
         $(impl<'a> TryFrom<LhsValue<'a>> for $lhs_ty {
             type Error = TypeMismatchError;
 
             fn try_from(value: LhsValue<'a>) -> Result<$lhs_ty, TypeMismatchError> {
                 match value {
                     LhsValue::$name(value) => Ok(value),
-                    _ => Err(TypeMismatchError {
-                        expected: Type::$name,
-                        actual: value.get_type(),
-                    }),
+                    _ => specialized_type_mismatch!($name, value),
                 }
             }
         })*
@@ -133,7 +157,7 @@ macro_rules! declare_types {
         impl<'i> LexWith<'i, Type> for RhsValue {
             fn lex_with(input: &str, ty: Type) -> LexResult<'_, Self> {
                 Ok(match ty {
-                    $(Type::$name => {
+                    $(replace_underscore!($name $(($val_ty))?) => {
                         let (value, input) = <$rhs_ty>::lex(input)?;
                         (RhsValue::$name(value), input)
                     })*
@@ -175,7 +199,7 @@ macro_rules! declare_types {
         impl<'i> LexWith<'i, Type> for RhsValues {
             fn lex_with(input: &str, ty: Type) -> LexResult<'_, Self> {
                 Ok(match ty {
-                    $(Type::$name => {
+                    $(replace_underscore!($name $(($val_ty))?) => {
                         let (value, input) = lex_rhs_values(input)?;
                         (RhsValues::$name(value), input)
                     })*
@@ -183,6 +207,16 @@ macro_rules! declare_types {
             }
         }
     };
+}
+
+// type Map<'a> = HashMap<&'a str, LhsValue<'a>>;
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Map<'a>(Type, #[serde(borrow)] HashMap<&'a str, LhsValue<'a>>);
+
+impl<'a> GetType for Map<'a> {
+    fn get_type(&self) -> Type {
+        self.0.clone()
+    }
 }
 
 // special case for simply passing bytes
@@ -206,6 +240,7 @@ impl<'a> From<&'a RhsValue> for LhsValue<'a> {
             RhsValue::Bytes(bytes) => LhsValue::Bytes(Cow::Borrowed(bytes)),
             RhsValue::Int(integer) => LhsValue::Int(*integer),
             RhsValue::Bool(b) => match *b {},
+            RhsValue::Map(m) => match *m {},
         }
     }
 }
@@ -219,6 +254,7 @@ impl<'a> LhsValue<'a> {
             LhsValue::Bytes(bytes) => LhsValue::Bytes(Cow::Borrowed(bytes)),
             LhsValue::Int(integer) => LhsValue::Int(*integer),
             LhsValue::Bool(b) => LhsValue::Bool(*b),
+            LhsValue::Map(m) => LhsValue::Map(m.clone()),
         }
     }
 }
@@ -240,6 +276,9 @@ declare_types!(
 
     /// A boolean.
     Bool(bool | UninhabitedBool | UninhabitedBool),
+
+    /// A map
+    Map[Box<Type>](Map<'a> | UninhabitedMap | UninhabitedMap),
 );
 
 #[test]
