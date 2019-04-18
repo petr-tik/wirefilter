@@ -317,10 +317,12 @@ mod tests {
             Function, FunctionArgKind, FunctionArgs, FunctionImpl, FunctionOptParam, FunctionParam,
         },
         rhs_types::IpRange,
+        scheme::FieldPathItem,
+        types::Map,
     };
     use cidr::{Cidr, IpCidr};
     use lazy_static::lazy_static;
-    use std::net::IpAddr;
+    use std::{collections::HashMap, net::IpAddr};
 
     fn echo_function<'a>(args: FunctionArgs<'_, 'a>) -> LhsValue<'a> {
         args.next().unwrap()
@@ -355,6 +357,7 @@ mod tests {
                 ip.addr: Ip,
                 ssl: Bool,
                 tcp.port: Int,
+                http.headers: Map(Bytes),
             };
             scheme
                 .add_function(
@@ -407,6 +410,13 @@ mod tests {
 
     fn field(name: &'static str) -> Field<'static> {
         SCHEME.get_field(name).unwrap()
+    }
+
+    fn field_with_path(
+        name: &'static str,
+        path: impl IntoIterator<Item = FieldPathItem>,
+    ) -> Field<'static> {
+        SCHEME.get_field_with_path(name, path).unwrap()
     }
 
     #[test]
@@ -831,6 +841,50 @@ mod tests {
 
         ctx.set_field_value("tcp.port", 8080).unwrap();
         assert_eq!(expr.execute(ctx), false);
+    }
+
+    #[test]
+    fn test_map_of_bytes_contains_str() {
+        let expr = assert_ok!(
+            FieldExpr::lex_with(r#"http.headers["host"] contains "abc""#, &SCHEME),
+            FieldExpr {
+                lhs: LhsFieldExpr::Field(field_with_path(
+                    "http.headers",
+                    vec![FieldPathItem::Name("host".to_string())]
+                )),
+                op: FieldOp::Contains("abc".to_owned().into()),
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "http.headers",
+                "op": "Contains",
+                "rhs": "abc",
+            }
+        );
+
+        let expr = expr.compile();
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        let headers = LhsValue::Map(Map(Type::Bytes, {
+            let mut map = HashMap::new();
+            map.insert("host".to_string(), "example.org".into());
+            map
+        }));
+
+        ctx.set_field_value("http.headers", headers).unwrap();
+        assert_eq!(expr.execute(ctx), false);
+
+        let headers = LhsValue::Map(Map(Type::Bytes, {
+            let mut map = HashMap::new();
+            map.insert("host".to_string(), "abc.net.au".into());
+            map
+        }));
+
+        ctx.set_field_value("http.headers", headers).unwrap();
+        assert_eq!(expr.execute(ctx), true);
     }
 
     #[test]

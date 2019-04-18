@@ -1,8 +1,8 @@
 use crate::{
     ast::FilterAst,
     functions::Function,
-    lex::{complete, expect, span, take_while, LexErrorKind, LexResult, LexWith},
-    types::{GetType, Type},
+    lex::{complete, expect, skip_space, span, take_while, LexErrorKind, LexResult, LexWith},
+    types::{GetType, RhsValue, Type},
 };
 use failure::Fail;
 use fnv::FnvBuildHasher;
@@ -16,7 +16,7 @@ use std::{
     ptr,
 };
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FieldPathItem {
     Name(String),
 }
@@ -58,8 +58,29 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for Field<'s> {
 
         let name = span(initial_input, input);
 
+        let mut path = vec![];
+
+        while let Ok(rest) = expect(input, "[") {
+            input = skip_space(rest);
+
+            let key = RhsValue::lex_with(input, Type::Bytes)?;
+
+            input = key.1;
+
+            match key.0 {
+                RhsValue::Bytes(bytes) => path.push(FieldPathItem::Name(
+                    String::from_utf8(bytes.to_vec()).unwrap(),
+                )),
+                _ => unreachable!(),
+            };
+
+            input = skip_space(input);
+
+            input = expect(input, "]")?;
+        }
+
         let field = scheme
-            .get_field(name)
+            .get_field_with_path(name, path)
             .map_err(|err| (LexErrorKind::UnknownField(err), name))?;
 
         Ok((field, input))
@@ -331,12 +352,12 @@ impl<'s> Scheme {
 /// contents.
 #[macro_export]
 macro_rules! Scheme {
-    ($($ns:ident $(. $field:ident)*: $ty:ident),* $(,)*) => {
+    ($($ns:ident $(. $field:ident)*: $ty:ident $(($subty:tt))?),* $(,)*) => {
         $crate::Scheme::try_from_iter(
             [$(
                 (
                     concat!(stringify!($ns) $(, ".", stringify!($field))*),
-                    $crate::Type::$ty,
+                    Scheme!($ty $(($subty))?),
                 )
             ),*]
             .iter()
@@ -345,6 +366,7 @@ macro_rules! Scheme {
         // Treat duplciations in static schemes as a developer's mistake.
         .unwrap_or_else(|err| panic!("{}", err))
     };
+    ($ty:ident $(($subty:tt))?) => {crate::Type::$ty$((Box::new(Scheme!($subty))))?};
 }
 
 #[test]
@@ -464,6 +486,7 @@ fn test_field() {
         x: Bytes,
         x.y.z0: Int,
         is_TCP: Bool,
+        map: Map(Bytes)
     };
 
     assert_ok!(
@@ -484,6 +507,20 @@ fn test_field() {
         ""
     );
 
+    assert_ok!(
+        Field::lex_with("map", scheme),
+        scheme.get_field("map").unwrap(),
+        ""
+    );
+
+    assert_ok!(
+        Field::lex_with("map[\"key\"]", scheme),
+        scheme
+            .get_field_with_path("map", vec![FieldPathItem::Name("key".to_string())])
+            .unwrap(),
+        ""
+    );
+
     assert_err!(
         Field::lex_with("x..y", scheme),
         LexErrorKind::ExpectedName("identifier character"),
@@ -500,6 +537,32 @@ fn test_field() {
         Field::lex_with("x.y.z;", scheme),
         LexErrorKind::UnknownField(UnknownFieldError),
         "x.y.z"
+    );
+
+    assert_err!(
+        Field::lex_with("x[]", scheme),
+        LexErrorKind::CountMismatch {
+            name: "character",
+            actual: 1,
+            expected: 2,
+        },
+        "]"
+    );
+
+    assert_err!(
+        Field::lex_with("x[", scheme),
+        LexErrorKind::CountMismatch {
+            name: "character",
+            actual: 0,
+            expected: 2,
+        },
+        ""
+    );
+
+    assert_err!(
+        Field::lex_with("x[\"key\"", scheme),
+        LexErrorKind::ExpectedLiteral("]"),
+        ""
     );
 }
 
