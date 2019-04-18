@@ -29,7 +29,7 @@ impl<'e> ExecutionContext<'e> {
         self.scheme
     }
 
-    pub(crate) fn get_field_value_unchecked(&'e self, field: Field<'e>) -> LhsValue<'e> {
+    pub(crate) fn get_field_value_unchecked(&'e self, field: &Field<'e>) -> LhsValue<'e> {
         // This is safe because this code is reachable only from Filter::execute
         // which already performs the scheme compatibility check, but check that
         // invariant holds in the future at least in the debug mode.
@@ -38,12 +38,22 @@ impl<'e> ExecutionContext<'e> {
         // For now we panic in this, but later we are going to align behaviour
         // with wireshark: resolve all subexpressions that don't have RHS value
         // to `false`.
-        let lhs_value = self.values[field.index()].as_ref().unwrap_or_else(|| {
+        let mut lhs_value = self.values[field.index()].as_ref().unwrap_or_else(|| {
             panic!(
                 "Field {} was registered but not given a value",
                 field.name()
             );
         });
+        let mut lhs_type = self.scheme.get_field(field.name()).unwrap().get_type();
+        for item in &field.path {
+            lhs_type = lhs_type.next().unwrap();
+            lhs_value = lhs_value.get(item, &lhs_type).unwrap().unwrap_or_else(|| {
+                panic!(
+                    "Field {} was registered but not given a value",
+                    field.name()
+                );
+            });
+        }
         lhs_value.as_ref()
     }
 
@@ -53,7 +63,7 @@ impl<'e> ExecutionContext<'e> {
         name: &str,
         value: V,
     ) -> Result<(), TypeMismatchError> {
-        let field = self.scheme.get_field_index(name).unwrap();
+        let field = self.scheme.get_field(name).unwrap();
         let value = value.into();
 
         let field_type = field.get_type();

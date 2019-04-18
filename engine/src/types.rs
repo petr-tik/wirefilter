@@ -1,6 +1,7 @@
 use crate::{
     lex::{expect, skip_space, Lex, LexResult, LexWith},
     rhs_types::{Bytes, IpRange, UninhabitedBool, UninhabitedMap},
+    scheme::FieldPathItem,
     strict_partial_ord::StrictPartialOrd,
 };
 use failure::Fail;
@@ -101,6 +102,16 @@ macro_rules! declare_types {
         #[repr(C)]
         pub enum Type {
             $($(# $attrs)* $name$(($val_ty))?,)*
+        }
+
+        impl Type {
+            /// Returns the inner type when available (e.g: for a Map)
+            pub fn next(&self) -> Option<Type> {
+                match self {
+                    Type::Map(ty) => Some(*ty.clone()),
+                    _ => None,
+                }
+            }
         }
 
         /// Provides a way to get a [`Type`] of the implementor.
@@ -211,7 +222,7 @@ macro_rules! declare_types {
 
 // type Map<'a> = HashMap<&'a str, LhsValue<'a>>;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Map<'a>(Type, #[serde(borrow)] HashMap<&'a str, LhsValue<'a>>);
+pub struct Map<'a>(pub Type, #[serde(borrow)] pub HashMap<String, LhsValue<'a>>);
 
 impl<'a> GetType for Map<'a> {
     fn get_type(&self) -> Type {
@@ -255,6 +266,24 @@ impl<'a> LhsValue<'a> {
             LhsValue::Int(integer) => LhsValue::Int(*integer),
             LhsValue::Bool(b) => LhsValue::Bool(*b),
             LhsValue::Map(m) => LhsValue::Map(m.clone()),
+        }
+    }
+
+    /// Retrieve an element from an LhsValue given a path item and a specified
+    /// type.
+    /// Returns a TypeMismatchError error if current type does not support it
+    /// nested element. Only LhsValue::Map supports nested elements for now.
+    pub fn get(
+        &self,
+        item: &FieldPathItem,
+        ty: &Type,
+    ) -> Result<Option<&LhsValue>, TypeMismatchError> {
+        match (self, item) {
+            (LhsValue::Map(Map(_ty, map)), FieldPathItem::Name(ref name)) => Ok(map.get(name)),
+            (_, FieldPathItem::Name(_name)) => Err(TypeMismatchError {
+                expected: Type::Map(Box::new(ty.clone())),
+                actual: self.get_type(),
+            }),
         }
     }
 }

@@ -16,7 +16,7 @@ pub(crate) enum FunctionCallArgExpr<'s> {
 }
 
 impl<'s> FunctionCallArgExpr<'s> {
-    pub fn uses(&self, field: Field<'s>) -> bool {
+    pub fn uses(&self, field: &Field<'s>) -> bool {
         match self {
             FunctionCallArgExpr::LhsFieldExpr(lhs) => lhs.uses(field),
             FunctionCallArgExpr::Literal(_) => false,
@@ -26,7 +26,7 @@ impl<'s> FunctionCallArgExpr<'s> {
     pub fn execute(&'s self, ctx: &'s ExecutionContext<'s>) -> LhsValue<'s> {
         match self {
             FunctionCallArgExpr::LhsFieldExpr(lhs) => match lhs {
-                LhsFieldExpr::Field(field) => ctx.get_field_value_unchecked(*field),
+                LhsFieldExpr::Field(field) => ctx.get_field_value_unchecked(field),
                 LhsFieldExpr::FunctionCallExpr(call) => call.execute(ctx),
             },
             FunctionCallArgExpr::Literal(literal) => literal.into(),
@@ -87,7 +87,7 @@ impl<'s> FunctionCallExpr<'s> {
         }
     }
 
-    pub fn uses(&self, field: Field<'s>) -> bool {
+    pub fn uses(&self, field: &Field<'s>) -> bool {
         self.args.iter().any(|arg| arg.uses(field))
     }
 
@@ -247,7 +247,7 @@ fn test_function() {
             name: String::from("echo"),
             function: SCHEME.get_function("echo").unwrap(),
             args: vec![FunctionCallArgExpr::LhsFieldExpr(LhsFieldExpr::Field(
-                SCHEME.get_field_index("http.host").unwrap()
+                SCHEME.get_field("http.host").unwrap()
             ))],
         },
         ";"
@@ -291,7 +291,7 @@ fn test_function() {
                     name: String::from("echo"),
                     function: SCHEME.get_function("echo").unwrap(),
                     args: vec![FunctionCallArgExpr::LhsFieldExpr(LhsFieldExpr::Field(
-                        SCHEME.get_field_index("http.host").unwrap()
+                        SCHEME.get_field("http.host").unwrap()
                     ))],
                 })
             )]

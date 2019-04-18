@@ -12,13 +12,20 @@ use std::{
     cmp::{max, min},
     error::Error,
     fmt::{self, Debug, Display, Formatter},
+    iter::Iterator,
     ptr,
 };
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone)]
+pub enum FieldPathItem {
+    Name(String),
+}
+
+#[derive(PartialEq, Eq, Clone)]
 pub(crate) struct Field<'s> {
     scheme: &'s Scheme,
     index: usize,
+    pub path: Vec<FieldPathItem>,
 }
 
 impl<'s> Serialize for Field<'s> {
@@ -52,7 +59,7 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for Field<'s> {
         let name = span(initial_input, input);
 
         let field = scheme
-            .get_field_index(name)
+            .get_field(name)
             .map_err(|err| (LexErrorKind::UnknownField(err), name))?;
 
         Ok((field, input))
@@ -75,7 +82,14 @@ impl<'s> Field<'s> {
 
 impl<'s> GetType for Field<'s> {
     fn get_type(&self) -> Type {
-        self.scheme.fields.get_index(self.index).unwrap().1.clone()
+        let mut ty = self.scheme.fields.get_index(self.index).unwrap().1;
+        for item in &self.path {
+            ty = match (ty, item) {
+                (Type::Map(child), FieldPathItem::Name(_index)) => &(*child),
+                (_, _) => panic!("Invalid path"),
+            }
+        }
+        ty.clone()
     }
 }
 
@@ -249,11 +263,20 @@ impl<'s> Scheme {
         Ok(scheme)
     }
 
-    pub(crate) fn get_field_index(&'s self, name: &str) -> Result<Field<'s>, UnknownFieldError> {
+    pub(crate) fn get_field(&'s self, name: &str) -> Result<Field<'s>, UnknownFieldError> {
+        self.get_field_with_path(name, std::iter::empty::<FieldPathItem>())
+    }
+
+    pub(crate) fn get_field_with_path(
+        &'s self,
+        name: &str,
+        path: impl IntoIterator<Item = FieldPathItem>,
+    ) -> Result<Field<'s>, UnknownFieldError> {
         match self.fields.get_full(name) {
             Some((index, ..)) => Ok(Field {
                 scheme: self,
                 index,
+                path: path.into_iter().collect::<Vec<_>>(),
             }),
             None => Err(UnknownFieldError),
         }
@@ -445,19 +468,19 @@ fn test_field() {
 
     assert_ok!(
         Field::lex_with("x;", scheme),
-        scheme.get_field_index("x").unwrap(),
+        scheme.get_field("x").unwrap(),
         ";"
     );
 
     assert_ok!(
         Field::lex_with("x.y.z0-", scheme),
-        scheme.get_field_index("x.y.z0").unwrap(),
+        scheme.get_field("x.y.z0").unwrap(),
         "-"
     );
 
     assert_ok!(
         Field::lex_with("is_TCP", scheme),
-        scheme.get_field_index("is_TCP").unwrap(),
+        scheme.get_field("is_TCP").unwrap(),
         ""
     );
 

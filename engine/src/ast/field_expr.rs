@@ -132,9 +132,9 @@ pub(crate) enum LhsFieldExpr<'s> {
 }
 
 impl<'s> LhsFieldExpr<'s> {
-    pub fn uses(&self, field: Field<'s>) -> bool {
+    pub fn uses(&self, field: &Field<'s>) -> bool {
         match self {
-            LhsFieldExpr::Field(f) => *f == field,
+            LhsFieldExpr::Field(f) => f == field,
             LhsFieldExpr::FunctionCallExpr(call) => call.uses(field),
         }
     }
@@ -148,7 +148,7 @@ impl<'s> LhsFieldExpr<'s> {
                 CompiledExpr::new(move |ctx| func(call.execute(ctx)))
             }
             LhsFieldExpr::Field(f) => {
-                CompiledExpr::new(move |ctx| func(ctx.get_field_value_unchecked(f)))
+                CompiledExpr::new(move |ctx| func(ctx.get_field_value_unchecked(&f)))
             }
         }
     }
@@ -238,7 +238,7 @@ impl<'i, 's> LexWith<'i, &'s Scheme> for FieldExpr<'s> {
 }
 
 impl<'s> Expr<'s> for FieldExpr<'s> {
-    fn uses(&self, field: Field<'s>) -> bool {
+    fn uses(&self, field: &Field<'s>) -> bool {
         self.lhs.uses(field)
     }
 
@@ -406,7 +406,7 @@ mod tests {
     }
 
     fn field(name: &'static str) -> Field<'static> {
-        SCHEME.get_field_index(name).unwrap()
+        SCHEME.get_field(name).unwrap()
     }
 
     #[test]
