@@ -322,7 +322,7 @@ mod tests {
     };
     use cidr::{Cidr, IpCidr};
     use lazy_static::lazy_static;
-    use std::{collections::HashMap, net::IpAddr};
+    use std::net::IpAddr;
 
     fn echo_function<'a>(args: FunctionArgs<'_, 'a>) -> LhsValue<'a> {
         args.next().unwrap()
@@ -868,20 +868,21 @@ mod tests {
         let expr = expr.compile();
         let ctx = &mut ExecutionContext::new(&SCHEME);
 
-        let headers = LhsValue::Map(Map(Type::Bytes, {
-            let mut map = HashMap::new();
-            map.insert("host".to_string(), "example.org".into());
+        let headers = LhsValue::Map({
+            let mut map = Map::new(Type::Bytes);
+            map.insert("host".to_string(), "example.org".into())
+                .unwrap();
             map
-        }));
+        });
 
         ctx.set_field_value("http.headers", headers).unwrap();
         assert_eq!(expr.execute(ctx), false);
 
-        let headers = LhsValue::Map(Map(Type::Bytes, {
-            let mut map = HashMap::new();
-            map.insert("host".to_string(), "abc.net.au".into());
+        let headers = LhsValue::Map({
+            let mut map = Map::new(Type::Bytes);
+            map.insert("host".to_string(), "abc.net.au".into()).unwrap();
             map
-        }));
+        });
 
         ctx.set_field_value("http.headers", headers).unwrap();
         assert_eq!(expr.execute(ctx), true);

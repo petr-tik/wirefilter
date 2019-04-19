@@ -222,7 +222,35 @@ macro_rules! declare_types {
 
 // type Map<'a> = HashMap<&'a str, LhsValue<'a>>;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Map<'a>(pub Type, #[serde(borrow)] pub HashMap<String, LhsValue<'a>>);
+pub struct Map<'a>(Type, #[serde(borrow)] HashMap<String, LhsValue<'a>>);
+
+impl<'a> Map<'a> {
+    pub fn new(ty: Type) -> Self {
+        Self {
+            0: ty,
+            1: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&LhsValue<'a>> {
+        self.1.get(key)
+    }
+
+    pub fn insert(
+        &mut self,
+        key: String,
+        value: LhsValue<'a>,
+    ) -> Result<Option<LhsValue<'a>>, TypeMismatchError> {
+        let value_type = value.get_type();
+        if self.0 != value_type {
+            return Err(TypeMismatchError {
+                expected: self.0.clone(),
+                actual: value_type,
+            });
+        }
+        Ok(self.1.insert(key, value))
+    }
+}
 
 impl<'a> GetType for Map<'a> {
     fn get_type(&self) -> Type {
@@ -279,7 +307,7 @@ impl<'a> LhsValue<'a> {
         ty: &Type,
     ) -> Result<Option<&LhsValue>, TypeMismatchError> {
         match (self, item) {
-            (LhsValue::Map(Map(_ty, map)), FieldPathItem::Name(ref name)) => Ok(map.get(name)),
+            (LhsValue::Map(map), FieldPathItem::Name(ref name)) => Ok(map.get(name)),
             (_, FieldPathItem::Name(_name)) => Err(TypeMismatchError {
                 expected: Type::Map(Box::new(ty.clone())),
                 actual: self.get_type(),
