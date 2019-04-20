@@ -1,5 +1,5 @@
 use crate::{
-    scheme::{Field, Scheme},
+    scheme::{Field, FieldPathItem, Scheme},
     types::{GetType, LhsValue, TypeMismatchError},
 };
 
@@ -78,6 +78,46 @@ impl<'e> ExecutionContext<'e> {
                 actual: value_type,
             })
         }
+    }
+
+    /// Sets a runtime value for a given field name and a path
+    pub fn set_field_value_with_path<'v: 'e, V: Into<LhsValue<'v>>>(
+        &mut self,
+        name: &str,
+        path: impl IntoIterator<Item = FieldPathItem>,
+        value: V,
+    ) -> Result<(), TypeMismatchError> {
+        let mut iter = path.into_iter().peekable();
+
+        if iter.peek().is_none() {
+            return self.set_field_value(name, value);
+        }
+
+        let field = self.scheme.get_field(name).unwrap();
+        let mut ty = field.get_type();
+        let mut node = self.values[field.index()].as_mut().unwrap();
+
+        while let Some(item) = iter.next() {
+            ty = ty.next().unwrap();
+            if iter.peek().is_some() {
+                node = node.get_mut(&item, &ty)?.unwrap();
+            } else {
+                let value = value.into();
+                let value_type = value.get_type();
+
+                if ty == value_type {
+                    node.set(item, value)?;
+                    return Ok(());
+                } else {
+                    return Err(TypeMismatchError {
+                        expected: ty,
+                        actual: value_type,
+                    });
+                }
+            }
+        }
+
+        unreachable!();
     }
 }
 

@@ -878,13 +878,12 @@ mod tests {
         ctx.set_field_value("http.headers", headers).unwrap();
         assert_eq!(expr.execute(ctx), false);
 
-        let headers = LhsValue::Map({
-            let mut map = Map::new(Type::Bytes);
-            map.insert("host".to_string(), "abc.net.au".into()).unwrap();
-            map
-        });
-
-        ctx.set_field_value("http.headers", headers).unwrap();
+        ctx.set_field_value_with_path(
+            "http.headers",
+            vec![FieldPathItem::Name("host".to_string())],
+            "abc.net.au",
+        )
+        .unwrap();
         assert_eq!(expr.execute(ctx), true);
     }
 

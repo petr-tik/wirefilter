@@ -236,6 +236,10 @@ impl<'a> Map<'a> {
         self.1.get(key)
     }
 
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut LhsValue<'a>> {
+        self.1.get_mut(key)
+    }
+
     pub fn insert(
         &mut self,
         key: String,
@@ -305,13 +309,54 @@ impl<'a> LhsValue<'a> {
         &self,
         item: &FieldPathItem,
         ty: &Type,
-    ) -> Result<Option<&LhsValue>, TypeMismatchError> {
+    ) -> Result<Option<&LhsValue<'a>>, TypeMismatchError> {
         match (self, item) {
             (LhsValue::Map(map), FieldPathItem::Name(ref name)) => Ok(map.get(name)),
             (_, FieldPathItem::Name(_name)) => Err(TypeMismatchError {
                 expected: Type::Map(Box::new(ty.clone())),
                 actual: self.get_type(),
             }),
+        }
+    }
+
+    /// Retrieve a mutable element from an LhsValue given a path item and a
+    /// specified type.
+    /// Returns a TypeMismatchError error if current type does not support
+    /// nested element. Only LhsValue::Map supports nested elements for now.
+    pub fn get_mut(
+        &mut self,
+        item: &FieldPathItem,
+        ty: &Type,
+    ) -> Result<Option<&mut LhsValue<'a>>, TypeMismatchError> {
+        match item {
+            FieldPathItem::Name(name) => match self {
+                LhsValue::Map(ref mut map) => Ok(map.get_mut(name)),
+                _ => Err(TypeMismatchError {
+                    expected: Type::Map(Box::new(ty.clone())),
+                    actual: self.get_type(),
+                }),
+            },
+        }
+    }
+
+    /// Set an element in an LhsValue given a path item and a specified value.
+    /// Returns a TypeMismatchError error if current type does not support
+    /// nested element or if value type is invalid.
+    /// Only LhsValyue::Map supports nested elements for now.
+    pub fn set(
+        &mut self,
+        item: FieldPathItem,
+        value: LhsValue<'a>,
+    ) -> Result<Option<LhsValue<'a>>, TypeMismatchError> {
+        let value_type = value.get_type();
+        match item {
+            FieldPathItem::Name(name) => match self {
+                LhsValue::Map(ref mut map) => map.insert(name, value),
+                _ => Err(TypeMismatchError {
+                    expected: Type::Map(Box::new(value_type)),
+                    actual: self.get_type(),
+                }),
+            },
         }
     }
 }
