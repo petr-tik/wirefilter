@@ -857,7 +857,7 @@ mod tests {
         assert_json!(
             expr,
             {
-                "lhs": "http.headers",
+                "lhs": ["http.headers", "host"],
                 "op": "Contains",
                 "rhs": "abc",
             }
@@ -925,7 +925,7 @@ mod tests {
         assert_json!(
             expr,
             {
-                "lhs": "map.of.map",
+                "lhs": ["map.of.map", "key", "subkey"],
                 "op": "Contains",
                 "rhs": "abc",
             }

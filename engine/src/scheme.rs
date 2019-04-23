@@ -7,7 +7,7 @@ use crate::{
 use failure::Fail;
 use fnv::FnvBuildHasher;
 use indexmap::map::{Entry, IndexMap};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
 use std::{
     cmp::{max, min},
     error::Error,
@@ -16,7 +16,8 @@ use std::{
     ptr,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize)]
+#[serde(untagged)]
 pub enum FieldPathItem {
     Name(String),
 }
@@ -37,7 +38,16 @@ pub(crate) struct Field<'s> {
 
 impl<'s> Serialize for Field<'s> {
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
-        self.name().serialize(ser)
+        if self.path.is_empty() {
+            self.name().serialize(ser)
+        } else {
+            let mut seq = ser.serialize_seq(Some(self.path.len() + 1))?;
+            seq.serialize_element(self.name())?;
+            for e in &self.path {
+                seq.serialize_element(e)?;
+            }
+            seq.end()
+        }
     }
 }
 
