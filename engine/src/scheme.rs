@@ -21,6 +21,13 @@ pub enum FieldPathItem {
     Name(String),
 }
 
+// special case for simply passing strings
+impl From<&str> for FieldPathItem {
+    fn from(name: &str) -> Self {
+        FieldPathItem::Name(name.to_string())
+    }
+}
+
 #[derive(PartialEq, Eq, Clone)]
 pub(crate) struct Field<'s> {
     scheme: &'s Scheme,
@@ -516,7 +523,7 @@ fn test_field() {
     assert_ok!(
         Field::lex_with("map[\"key\"]", scheme),
         scheme
-            .get_field_with_path("map", vec![FieldPathItem::Name("key".to_string())])
+            .get_field_with_path("map", vec!["key".into()])
             .unwrap(),
         ""
     );

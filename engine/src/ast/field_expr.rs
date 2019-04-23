@@ -848,10 +848,7 @@ mod tests {
         let expr = assert_ok!(
             FieldExpr::lex_with(r#"http.headers["host"] contains "abc""#, &SCHEME),
             FieldExpr {
-                lhs: LhsFieldExpr::Field(field_with_path(
-                    "http.headers",
-                    vec![FieldPathItem::Name("host".to_string())]
-                )),
+                lhs: LhsFieldExpr::Field(field_with_path("http.headers", vec!["host".into()])),
                 op: FieldOp::Contains("abc".to_owned().into()),
             }
         );
@@ -878,12 +875,8 @@ mod tests {
         ctx.set_field_value("http.headers", headers).unwrap();
         assert_eq!(expr.execute(ctx), false);
 
-        ctx.set_field_value_with_path(
-            "http.headers",
-            vec![FieldPathItem::Name("host".to_string())],
-            "abc.net.au",
-        )
-        .unwrap();
+        ctx.set_field_value_with_path("http.headers", vec!["host".into()], "abc.net.au")
+            .unwrap();
         assert_eq!(expr.execute(ctx), true);
     }
 
