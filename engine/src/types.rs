@@ -45,6 +45,23 @@ pub struct TypeMismatchError {
     pub actual: Type,
 }
 
+/// An error that occurs when a voidable type (map) is expected
+#[derive(Debug, PartialEq, Fail)]
+#[fail(display = "expected a voidable type (map), but got {:?}", actual)]
+pub struct VoidableTypeError {
+    /// Provided type.
+    pub actual: Type,
+}
+
+#[derive(Debug, PartialEq, Fail)]
+pub enum SetValueError {
+    #[fail(display = "{}", _0)]
+    TypeMismatch(#[cause] TypeMismatchError),
+
+    #[fail(display = "{}", _0)]
+    VoidableType(#[cause] VoidableTypeError),
+}
+
 macro_rules! replace_underscore {
     ($name:ident ($val_ty:ty)) => {Type::$name(_)};
     ($name:ident) => {Type::$name};
@@ -112,12 +129,22 @@ macro_rules! declare_types {
                     _ => None,
                 }
             }
+
+
         }
 
         /// Provides a way to get a [`Type`] of the implementor.
         pub trait GetType {
             /// Returns a type.
             fn get_type(&self) -> Type;
+
+            /// Returns a type given a path to access the data
+            fn get_type_from_path(&self, path: &mut impl Iterator<Item = FieldPathItem>) ->  Type {
+                match path.next() {
+                    Some(FieldPathItem::Name(_)) => Type::Map(Box::new(self.get_type_from_path(path))),
+                    None => self.get_type(),
+                }
+            }
         }
 
         impl GetType for Type {
@@ -288,6 +315,17 @@ impl<'a> From<&'a RhsValue> for LhsValue<'a> {
     }
 }
 
+impl<'a> TryFrom<Type> for LhsValue<'a> {
+    type Error = VoidableTypeError;
+
+    fn try_from(ty: Type) -> Result<LhsValue<'a>, VoidableTypeError> {
+        match ty {
+            Type::Map(subty) => Ok(LhsValue::Map(Map::new(*subty))),
+            _ => Err(VoidableTypeError { actual: ty }),
+        }
+    }
+}
+
 impl<'a> LhsValue<'a> {
     /// Converts a reference to an LhsValue to an LhsValue with an internal
     /// references
@@ -335,6 +373,38 @@ impl<'a> LhsValue<'a> {
                     expected: Type::Map(Box::new(ty.clone())),
                     actual: self.get_type(),
                 }),
+            },
+        }
+    }
+
+    /// Retrieve a mutable element from an LhsValue given a path item and a
+    /// specified type. If element does not exist and can be created from the
+    /// inner type of Self, set it and return it.
+    /// Returns a TypeMismatchError error if current type does not support
+    /// nested element or if value type is invalid.
+    /// Only LhsValyue::Map supports nested elements for now.
+    pub fn get_mut_or_try_set_default(
+        &mut self,
+        item: &FieldPathItem,
+        ty: &Type,
+    ) -> Result<Option<&mut LhsValue<'a>>, SetValueError> {
+        match item {
+            FieldPathItem::Name(name) => match self {
+                LhsValue::Map(ref mut map) => {
+                    let child = map.get_mut(name);
+                    if child.is_none() {
+                        map.insert(
+                            name.to_string(),
+                            LhsValue::try_from(ty.clone()).map_err(SetValueError::VoidableType)?,
+                        )
+                        .map_err(SetValueError::TypeMismatch)?;
+                    }
+                    Ok(map.get_mut(name))
+                }
+                _ => Err(SetValueError::TypeMismatch(TypeMismatchError {
+                    expected: Type::Map(Box::new(ty.clone())),
+                    actual: self.get_type(),
+                })),
             },
         }
     }

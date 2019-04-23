@@ -1,7 +1,8 @@
 use crate::{
     scheme::{Field, FieldPathItem, Scheme},
-    types::{GetType, LhsValue, TypeMismatchError},
+    types::{GetType, LhsValue, SetValueError, TypeMismatchError},
 };
+use std::convert::TryFrom;
 
 /// An execution context stores an associated [`Scheme`](struct@Scheme) and a
 /// set of runtime values to execute [`Filter`](::Filter) against.
@@ -86,34 +87,48 @@ impl<'e> ExecutionContext<'e> {
         name: &str,
         path: impl IntoIterator<Item = FieldPathItem>,
         value: V,
-    ) -> Result<(), TypeMismatchError> {
+    ) -> Result<(), SetValueError> {
         let mut iter = path.into_iter().peekable();
 
         if iter.peek().is_none() {
-            return self.set_field_value(name, value);
+            return self
+                .set_field_value(name, value)
+                .map_err(SetValueError::TypeMismatch);
         }
 
         let field = self.scheme.get_field(name).unwrap();
-        let mut ty = field.get_type();
+        let value = value.into();
+
+        let mut current_type = field.get_type();
+        let value_type = value.get_type();
+
+        if self.values[field.index()].is_none() {
+            self.values[field.index()] = Some(
+                LhsValue::try_from(current_type.clone()).map_err(SetValueError::VoidableType)?,
+            );
+        }
+
         let mut node = self.values[field.index()].as_mut().unwrap();
 
         while let Some(item) = iter.next() {
-            ty = ty.next().unwrap();
+            current_type = current_type.next().ok_or_else(|| {
+                SetValueError::TypeMismatch(TypeMismatchError {
+                    expected: current_type,
+                    actual: value.get_type_from_path(&mut iter),
+                })
+            })?;
             if iter.peek().is_some() {
-                node = node.get_mut(&item, &ty)?.unwrap();
+                node = node
+                    .get_mut_or_try_set_default(&item, &current_type)?
+                    .unwrap();
+            } else if current_type == value_type {
+                node.set(item, value).map_err(SetValueError::TypeMismatch)?;
+                return Ok(());
             } else {
-                let value = value.into();
-                let value_type = value.get_type();
-
-                if ty == value_type {
-                    node.set(item, value)?;
-                    return Ok(());
-                } else {
-                    return Err(TypeMismatchError {
-                        expected: ty,
-                        actual: value_type,
-                    });
-                }
+                return Err(SetValueError::TypeMismatch(TypeMismatchError {
+                    expected: current_type,
+                    actual: value_type,
+                }));
             }
         }
 

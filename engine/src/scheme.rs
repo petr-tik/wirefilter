@@ -359,12 +359,12 @@ impl<'s> Scheme {
 /// contents.
 #[macro_export]
 macro_rules! Scheme {
-    ($($ns:ident $(. $field:ident)*: $ty:ident $(($subty:tt))?),* $(,)*) => {
+    ($($ns:ident $(. $field:ident)*: $ty:ident $(($subty:ident $($subtt:tt)?))?),* $(,)*) => {
         $crate::Scheme::try_from_iter(
             [$(
                 (
                     concat!(stringify!($ns) $(, ".", stringify!($field))*),
-                    Scheme!($ty $(($subty))?),
+                    Scheme!($ty $(($subty $($subtt)?))?),
                 )
             ),*]
             .iter()
@@ -373,7 +373,7 @@ macro_rules! Scheme {
         // Treat duplciations in static schemes as a developer's mistake.
         .unwrap_or_else(|err| panic!("{}", err))
     };
-    ($ty:ident $(($subty:tt))?) => {crate::Type::$ty$((Box::new(Scheme!($subty))))?};
+    ($ty:ident $($subty:tt)?) => {crate::Type::$ty$(( Box::new(Scheme! $subty ) ))?};
 }
 
 #[test]

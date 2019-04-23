@@ -318,7 +318,7 @@ mod tests {
         },
         rhs_types::IpRange,
         scheme::FieldPathItem,
-        types::Map,
+        types::{Map, SetValueError, TypeMismatchError},
     };
     use cidr::{Cidr, IpCidr};
     use lazy_static::lazy_static;
@@ -358,6 +358,7 @@ mod tests {
                 ssl: Bool,
                 tcp.port: Int,
                 http.headers: Map(Bytes),
+                map.of.map: Map(Map(Bytes)),
             };
             scheme
                 .add_function(
@@ -877,6 +878,76 @@ mod tests {
 
         ctx.set_field_value_with_path("http.headers", vec!["host".into()], "abc.net.au")
             .unwrap();
+        assert_eq!(expr.execute(ctx), true);
+
+        assert_eq!(
+            ctx.set_field_value_with_path("http.headers", vec![], 42),
+            Err(SetValueError::TypeMismatch(TypeMismatchError {
+                expected: Type::Map(Box::new(Type::Bytes)),
+                actual: Type::Int
+            })),
+        );
+
+        assert_eq!(
+            ctx.set_field_value_with_path("http.headers", vec!["host".into()], 42),
+            Err(SetValueError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bytes,
+                actual: Type::Int
+            })),
+        );
+
+        assert_eq!(
+            ctx.set_field_value_with_path(
+                "http.headers",
+                vec!["host".into(), "unknown".into()],
+                42
+            ),
+            Err(SetValueError::TypeMismatch(TypeMismatchError {
+                expected: Type::Bytes,
+                actual: Type::Int
+            })),
+        );
+    }
+
+    #[test]
+    fn test_map_of_map_of_bytes_contains_str() {
+        let expr = assert_ok!(
+            FieldExpr::lex_with(r#"map.of.map["key"]["subkey"] contains "abc""#, &SCHEME),
+            FieldExpr {
+                lhs: LhsFieldExpr::Field(field_with_path(
+                    "map.of.map",
+                    vec!["key".into(), "subkey".into()]
+                )),
+                op: FieldOp::Contains("abc".to_owned().into()),
+            }
+        );
+
+        assert_json!(
+            expr,
+            {
+                "lhs": "map.of.map",
+                "op": "Contains",
+                "rhs": "abc",
+            }
+        );
+
+        let expr = expr.compile();
+        let ctx = &mut ExecutionContext::new(&SCHEME);
+
+        ctx.set_field_value_with_path(
+            "map.of.map",
+            vec!["key".into(), "subkey".into()],
+            "example.org",
+        )
+        .unwrap();
+        assert_eq!(expr.execute(ctx), false);
+
+        ctx.set_field_value_with_path(
+            "map.of.map",
+            vec!["key".into(), "subkey".into()],
+            "abc.net.au",
+        )
+        .unwrap();
         assert_eq!(expr.execute(ctx), true);
     }
 
